@@ -44,18 +44,6 @@ register_alias "ls" "List with colors" "Listing"
 register_alias "lsa" "List all with human-readable sizes" "Listing"
 register_alias "lsl" "List long format with less" "Listing"
 
-# ============================================================================
-# 📁 File Operations Aliases
-# ============================================================================
-alias cp='cp -i'
-alias mv='mv -i'
-alias rm='rm -i'
-alias mkdir='mkdir -pv'
-
-register_alias "cp" "Copy with confirmation" "File Operations"
-register_alias "mv" "Move with confirmation" "File Operations"
-register_alias "rm" "Remove with confirmation" "File Operations"
-register_alias "mkdir" "Create directory with parents and verbose" "File Operations"
 
 # ============================================================================
 # ⚡ Quick Shortcuts
