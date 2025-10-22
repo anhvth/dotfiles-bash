@@ -5,11 +5,13 @@
 # This file provides an automatic documentation system for aliases and functions
 # using associative arrays to store metadata
 
-# Initialize documentation arrays
-declare -gA FUNC_REGISTRY     # function_name => description
-declare -gA FUNC_CATEGORY     # function_name => category
-declare -gA ALIAS_REGISTRY    # alias_name => description  
-declare -gA ALIAS_CATEGORY    # alias_name => category
+# Initialize documentation arrays (bash 3.2 compatible)
+FUNC_NAMES=()           # Array of function names
+FUNC_DESCRIPTIONS=()    # Corresponding descriptions
+FUNC_CATEGORIES=()      # Corresponding categories
+ALIAS_NAMES=()          # Array of alias names  
+ALIAS_DESCRIPTIONS=()   # Corresponding descriptions
+ALIAS_CATEGORIES=()     # Corresponding categories
 
 # ============================================================================
 # 🔧 Registration Functions
@@ -21,8 +23,11 @@ register_func() {
     local name="$1"
     local desc="$2"
     local category="${3:-Utilities}"
-    FUNC_REGISTRY["$name"]="$desc"
-    FUNC_CATEGORY["$name"]="$category"
+    
+    # Add to arrays
+    FUNC_NAMES+=("$name")
+    FUNC_DESCRIPTIONS+=("$desc")
+    FUNC_CATEGORIES+=("$category")
 }
 
 # Register an alias with description and category
@@ -31,8 +36,11 @@ register_alias() {
     local name="$1"
     local desc="$2"
     local category="${3:-General}"
-    ALIAS_REGISTRY["$name"]="$desc"
-    ALIAS_CATEGORY["$name"]="$category"
+    
+    # Add to arrays
+    ALIAS_NAMES+=("$name")
+    ALIAS_DESCRIPTIONS+=("$desc")
+    ALIAS_CATEGORIES+=("$category")
 }
 
 # ============================================================================
@@ -41,20 +49,31 @@ register_alias() {
 
 # Show all registered functions
 show_functions() {
-    if [ ${#FUNC_REGISTRY[@]} -eq 0 ]; then
+    if [ ${#FUNC_NAMES[@]} -eq 0 ]; then
         echo -e "${BYellow}No functions registered yet.${Color_Off}"
         return
     fi
 
     # Get unique categories
-    local categories=($(for cat in "${FUNC_CATEGORY[@]}"; do echo "$cat"; done | sort -u))
+    local categories=($(printf '%s\n' "${FUNC_CATEGORIES[@]}" | sort -u))
     
     for category in "${categories[@]}"; do
         echo -e "\n${BBlue}━━━ $category ━━━${Color_Off}"
-        for func_name in $(echo "${!FUNC_REGISTRY[@]}" | tr ' ' '\n' | sort); do
-            if [[ "${FUNC_CATEGORY[$func_name]}" == "$category" ]]; then
-                printf "  ${BGreen}%-20s${Color_Off} %s\n" "$func_name" "${FUNC_REGISTRY[$func_name]}"
+        
+        # Create sorted indices for this category
+        local indices=()
+        local max_idx=$(expr ${#FUNC_NAMES[@]} - 1)
+        for i in $(seq 0 $max_idx); do
+            if [[ "${FUNC_CATEGORIES[$i]}" == "$category" ]]; then
+                indices+=($i)
             fi
+        done
+        
+        # Sort by function name within category
+        local sorted_indices=($(for idx in "${indices[@]}"; do echo "${FUNC_NAMES[$idx]} $idx"; done | sort | cut -d' ' -f2))
+        
+        for idx in "${sorted_indices[@]}"; do
+            printf "  ${BGreen}%-20s${Color_Off} %s\n" "${FUNC_NAMES[$idx]}" "${FUNC_DESCRIPTIONS[$idx]}"
         done
     done
     echo ""
@@ -62,20 +81,31 @@ show_functions() {
 
 # Show all registered aliases
 show_aliases() {
-    if [ ${#ALIAS_REGISTRY[@]} -eq 0 ]; then
+    if [ ${#ALIAS_NAMES[@]} -eq 0 ]; then
         echo -e "${BYellow}No aliases registered yet.${Color_Off}"
         return
     fi
 
     # Get unique categories
-    local categories=($(for cat in "${ALIAS_CATEGORY[@]}"; do echo "$cat"; done | sort -u))
+    local categories=($(printf '%s\n' "${ALIAS_CATEGORIES[@]}" | sort -u))
     
     for category in "${categories[@]}"; do
         echo -e "\n${BBlue}━━━ $category ━━━${Color_Off}"
-        for alias_name in $(echo "${!ALIAS_REGISTRY[@]}" | tr ' ' '\n' | sort); do
-            if [[ "${ALIAS_CATEGORY[$alias_name]}" == "$category" ]]; then
-                printf "  ${BGreen}%-20s${Color_Off} %s\n" "$alias_name" "${ALIAS_REGISTRY[$alias_name]}"
+        
+        # Create sorted indices for this category
+        local indices=()
+        local max_idx=$(expr ${#ALIAS_NAMES[@]} - 1)
+        for i in $(seq 0 $max_idx); do
+            if [[ "${ALIAS_CATEGORIES[$i]}" == "$category" ]]; then
+                indices+=($i)
             fi
+        done
+        
+        # Sort by alias name within category
+        local sorted_indices=($(for idx in "${indices[@]}"; do echo "${ALIAS_NAMES[$idx]} $idx"; done | sort | cut -d' ' -f2))
+        
+        for idx in "${sorted_indices[@]}"; do
+            printf "  ${BGreen}%-20s${Color_Off} %s\n" "${ALIAS_NAMES[$idx]}" "${ALIAS_DESCRIPTIONS[$idx]}"
         done
     done
     echo ""
@@ -91,17 +121,17 @@ fzf_functions() {
 
     # Build selection list with categories
     local selection_list=""
-    local func_map=()
     
-    for func_name in $(echo "${!FUNC_REGISTRY[@]}" | tr ' ' '\n' | sort); do
-        local category="${FUNC_CATEGORY[$func_name]}"
-        local desc="${FUNC_REGISTRY[$func_name]}"
+    local max_idx=$(expr ${#FUNC_NAMES[@]} - 1)
+    for i in $(seq 0 $max_idx); do
+        local func_name="${FUNC_NAMES[$i]}"
+        local category="${FUNC_CATEGORIES[$i]}"
+        local desc="${FUNC_DESCRIPTIONS[$i]}"
         local line=$(printf "%-20s [%s] %s" "$func_name" "$category" "$desc")
         selection_list+="$line"$'\n'
-        func_map+=("$func_name")
     done
 
-    local selected=$(echo "$selection_list" | fzf \
+    local selected=$(echo "$selection_list" | sort | fzf \
         --height=60% \
         --prompt="Select function: " \
         --preview='echo "Function: {1}"; echo ""; type {1} 2>/dev/null || echo "Function definition not found"' \
@@ -109,9 +139,22 @@ fzf_functions() {
     
     if [ -n "$selected" ]; then
         local func_name=$(echo "$selected" | awk '{print $1}')
+        
+        # Find the description and category for this function
+        local func_desc=""
+        local func_cat=""
+        local max_idx=$(expr ${#FUNC_NAMES[@]} - 1)
+        for i in $(seq 0 $max_idx); do
+            if [[ "${FUNC_NAMES[$i]}" == "$func_name" ]]; then
+                func_desc="${FUNC_DESCRIPTIONS[$i]}"
+                func_cat="${FUNC_CATEGORIES[$i]}"
+                break
+            fi
+        done
+        
         echo -e "\n${BCyan}Function:${Color_Off} $func_name"
-        echo -e "${BCyan}Description:${Color_Off} ${FUNC_REGISTRY[$func_name]}"
-        echo -e "${BCyan}Category:${Color_Off} ${FUNC_CATEGORY[$func_name]}"
+        echo -e "${BCyan}Description:${Color_Off} $func_desc"
+        echo -e "${BCyan}Category:${Color_Off} $func_cat"
         echo -e "\n${BCyan}Definition:${Color_Off}"
         type "$func_name" 2>/dev/null || echo "Function definition not available"
     fi
@@ -128,14 +171,16 @@ fzf_aliases() {
     # Build selection list with categories
     local selection_list=""
     
-    for alias_name in $(echo "${!ALIAS_REGISTRY[@]}" | tr ' ' '\n' | sort); do
-        local category="${ALIAS_CATEGORY[$alias_name]}"
-        local desc="${ALIAS_REGISTRY[$alias_name]}"
+    local max_idx=$(expr ${#ALIAS_NAMES[@]} - 1)
+    for i in $(seq 0 $max_idx); do
+        local alias_name="${ALIAS_NAMES[$i]}"
+        local category="${ALIAS_CATEGORIES[$i]}"
+        local desc="${ALIAS_DESCRIPTIONS[$i]}"
         local line=$(printf "%-20s [%s] %s" "$alias_name" "$category" "$desc")
         selection_list+="$line"$'\n'
     done
 
-    local selected=$(echo "$selection_list" | fzf \
+    local selected=$(echo "$selection_list" | sort | fzf \
         --height=60% \
         --prompt="Select alias: " \
         --preview='echo "Alias: {1}"; echo ""; alias {1} 2>/dev/null || echo "Alias definition not found"' \
@@ -143,9 +188,22 @@ fzf_aliases() {
     
     if [ -n "$selected" ]; then
         local alias_name=$(echo "$selected" | awk '{print $1}')
+        
+        # Find the description and category for this alias
+        local alias_desc=""
+        local alias_cat=""
+        local max_idx=$(expr ${#ALIAS_NAMES[@]} - 1)
+        for i in $(seq 0 $max_idx); do
+            if [[ "${ALIAS_NAMES[$i]}" == "$alias_name" ]]; then
+                alias_desc="${ALIAS_DESCRIPTIONS[$i]}"
+                alias_cat="${ALIAS_CATEGORIES[$i]}"
+                break
+            fi
+        done
+        
         echo -e "\n${BCyan}Alias:${Color_Off} $alias_name"
-        echo -e "${BCyan}Description:${Color_Off} ${ALIAS_REGISTRY[$alias_name]}"
-        echo -e "${BCyan}Category:${Color_Off} ${ALIAS_CATEGORY[$alias_name]}"
+        echo -e "${BCyan}Description:${Color_Off} $alias_desc"
+        echo -e "${BCyan}Category:${Color_Off} $alias_cat"
         echo -e "\n${BCyan}Definition:${Color_Off}"
         alias "$alias_name" 2>/dev/null || echo "Alias definition not available"
     fi
